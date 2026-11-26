@@ -73,6 +73,8 @@ export interface AdminSheetResponse {
   success: boolean;
   sheetName?: string;
   sheetUrl?: string;
+  tabUrl?: string;
+  spreadsheetUrl?: string;
   totalRows?: number;
   rows?: AdminSheetRow[];
   error?: string;

@@ -22,10 +22,16 @@
 var SHEET_NAME = 'EmployeeData';
 
 /**
- * Developer / Admin passcode required for ?action=list (Show Google Sheet).
- * Change this to your preferred private admin passcode before deploying.
+ * Developer / Admin passcode required for ?action=list (Admin Sheet Navigation).
+ * Reads ADMIN_PASSCODE from Script Properties if set, otherwise defaults to 'ADMIN@2026'.
  */
-var ADMIN_PASSCODE = 'Admin@2027';
+function getAdminPasscode_() {
+  var propKey = PropertiesService.getScriptProperties().getProperty('ADMIN_PASSCODE');
+  if (propKey && String(propKey).trim() !== '') {
+    return String(propKey).trim();
+  }
+  return 'ADMIN@2026';
+}
 
 /**
  * Exact 42-column mapping (A = 0 through AP = 41) matching "EmployeeData" sheet.
@@ -170,8 +176,9 @@ function doGet(e) {
     }
 
     if (action === 'list') {
+      var expectedPasscode = getAdminPasscode_();
       var providedKey = String(params.adminKey || '').trim();
-      if (!providedKey || providedKey !== ADMIN_PASSCODE) {
+      if (!expectedPasscode || !providedKey || providedKey !== expectedPasscode) {
         return jsonResponse_({
           success: false,
           error: 'Unauthorized: Invalid admin passcode.'
@@ -179,6 +186,8 @@ function doGet(e) {
       }
 
       var ss = SpreadsheetApp.getActiveSpreadsheet();
+      var spreadsheetUrl = ss.getUrl();
+      var tabUrl = spreadsheetUrl + '#gid=' + sheet.getSheetId();
       var totalLastRow = sheet.getLastRow();
       var allRows = [];
 
@@ -199,7 +208,9 @@ function doGet(e) {
       return jsonResponse_({
         success: true,
         sheetName: SHEET_NAME,
-        sheetUrl: ss.getUrl(),
+        sheetUrl: tabUrl,
+        tabUrl: tabUrl,
+        spreadsheetUrl: spreadsheetUrl,
         totalRows: allRows.length,
         rows: allRows
       });

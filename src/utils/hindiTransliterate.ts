@@ -121,6 +121,42 @@ const COMMON_NAME_MAP: Record<string, string> = {
   varanasi: 'वाराणसी',
   prayagraj: 'प्रयागराज',
   noida: 'नोएडा',
+  bank: 'बैंक',
+  state: 'स्टेट',
+  of: 'ऑफ',
+  india: 'इंडिया',
+  indian: 'इंडियन',
+  punjab: 'पंजाब',
+  national: 'नेशनल',
+  union: 'यूनियन',
+  canara: 'केनरा',
+  baroda: 'बड़ौदा',
+  allahabad: 'इलाहाबाद',
+  central: 'सेंट्रल',
+  gramin: 'ग्रामीण',
+  prathama: 'प्रथमा',
+  aryavart: 'आर्यावर्त',
+  hdfc: 'एचडीएफसी',
+  icici: 'आईसीआईसीआई',
+  axis: 'एक्सिस',
+  sbi: 'एसबीआई',
+  pnb: 'पीएनबी',
+  bob: 'बीओबी',
+  cooperative: 'कोऑपरेटिव',
+  sahkari: 'सहकारी',
+  district: 'जिला',
+  branch: 'शाखा',
+  main: 'मुख्य',
+  bazar: 'बाज़ार',
+  bazaar: 'बाज़ार',
+  road: 'रोड',
+  nagar: 'नगर',
+  ganj: 'गंज',
+  chowk: 'चौक',
+  chauk: 'चौक',
+  station: 'स्टेशन',
+  civil: 'सिविल',
+  lines: 'लाइंस',
 };
 
 const CONSONANTS: Array<[string, string]> = [
@@ -260,21 +296,64 @@ export function transliteratePhoneticWord(word: string): string {
   return out;
 }
 
-export async function transliterateWordAsync(word: string): Promise<string> {
+const SUGGESTIONS_CACHE = new Map<string, string[]>();
+
+export function getOfflineHindiSuggestions(word: string): string[] {
   const trimmed = word.trim();
-  if (!trimmed || !/[A-Za-z]/.test(trimmed)) return word;
+  if (!trimmed || !/[A-Za-z]/.test(trimmed)) return [];
+
+  const lower = trimmed.toLowerCase();
+  const candidates: string[] = [];
+
+  if (COMMON_NAME_MAP[lower]) {
+    candidates.push(COMMON_NAME_MAP[lower]);
+  }
+
+  const primary = transliteratePhoneticWord(trimmed);
+  if (primary && !candidates.includes(primary)) {
+    candidates.push(primary);
+  }
+
+  // Generate helpful Devanagari spelling variants for offline fallback
+  if (primary.endsWith('अ') && primary.length > 1) {
+    const trimmedA = primary.slice(0, -1);
+    if (!candidates.includes(trimmedA)) candidates.push(trimmedA);
+  }
+  if (lower.endsWith('a') && !lower.endsWith('aa')) {
+    const withAa = transliteratePhoneticWord(trimmed + 'a');
+    if (withAa && !candidates.includes(withAa)) {
+      candidates.push(withAa);
+    }
+  }
+  if (lower.includes('n') && !lower.includes('ng')) {
+    const anusvaraVariant = primary.replace(/न(?!$)/g, 'ं');
+    if (anusvaraVariant && anusvaraVariant !== primary && !candidates.includes(anusvaraVariant)) {
+      candidates.push(anusvaraVariant);
+    }
+  }
+
+  return candidates.slice(0, 5);
+}
+
+export async function getHindiSuggestions(word: string): Promise<string[]> {
+  const trimmed = word.trim();
+  if (!trimmed || !/[A-Za-z]/.test(trimmed)) return [];
 
   const cacheKey = trimmed.toLowerCase();
-  const cached = TRANSLITERATION_CACHE.get(cacheKey);
-  if (cached) return cached;
+  const cachedList = SUGGESTIONS_CACHE.get(cacheKey);
+  if (cachedList && cachedList.length > 0) {
+    return cachedList;
+  }
+
+  const offlineList = getOfflineHindiSuggestions(trimmed);
 
   try {
     const controller = new AbortController();
     const timeoutId = window.setTimeout(() => controller.abort(), 1200);
 
     const url = `https://inputtools.google.com/request?text=${encodeURIComponent(
-      trimmed.toLowerCase()
-    )}&itc=hi-t-i0-und&num=1&cp=0&cs=1&ie=utf-8&oe=utf-8`;
+      cacheKey
+    )}&itc=hi-t-i0-und&num=5&cp=0&cs=1&ie=utf-8&oe=utf-8`;
 
     const response = await fetch(url, { signal: controller.signal });
     window.clearTimeout(timeoutId);
@@ -284,14 +363,46 @@ export async function transliterateWordAsync(word: string): Promise<string> {
         string,
         Array<[string, string[]]>,
       ];
-      const candidate = data?.[1]?.[0]?.[1]?.[0];
-      if (candidate && /[\u0900-\u097F]/.test(candidate)) {
-        TRANSLITERATION_CACHE.set(cacheKey, candidate);
-        return candidate;
+      const rawCandidates = data?.[1]?.[0]?.[1] || [];
+      const devanagariCandidates = rawCandidates.filter(
+        (item) => typeof item === 'string' && /[\u0900-\u097F]/.test(item)
+      );
+
+      if (devanagariCandidates.length > 0) {
+        const merged = Array.from(
+          new Set([
+            ...(COMMON_NAME_MAP[cacheKey] ? [COMMON_NAME_MAP[cacheKey]] : []),
+            ...devanagariCandidates,
+          ])
+        ).slice(0, 5);
+
+        SUGGESTIONS_CACHE.set(cacheKey, merged);
+        TRANSLITERATION_CACHE.set(cacheKey, merged[0]);
+        return merged;
       }
     }
   } catch {
-    // Offline or CORS/timeout -> fall back silently to local phonetic transliterator
+    // Offline or timeout -> fall back silently to local phonetic suggestions
+  }
+
+  if (offlineList.length > 0) {
+    SUGGESTIONS_CACHE.set(cacheKey, offlineList);
+    TRANSLITERATION_CACHE.set(cacheKey, offlineList[0]);
+  }
+  return offlineList;
+}
+
+export async function transliterateWordAsync(word: string): Promise<string> {
+  const trimmed = word.trim();
+  if (!trimmed || !/[A-Za-z]/.test(trimmed)) return word;
+
+  const cacheKey = trimmed.toLowerCase();
+  const cached = TRANSLITERATION_CACHE.get(cacheKey);
+  if (cached) return cached;
+
+  const suggestions = await getHindiSuggestions(trimmed);
+  if (suggestions.length > 0) {
+    return suggestions[0];
   }
 
   const fallback = transliteratePhoneticWord(trimmed);

@@ -1,43 +1,77 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { FormEvent } from 'react';
 import {
   AlertCircle,
+  Check,
+  ChevronLeft,
+  ChevronRight,
+  ChevronsLeft,
+  ChevronsRight,
+  Copy,
   ExternalLink,
+  FileSpreadsheet,
   Loader2,
   Lock,
   RefreshCw,
   Search,
+  ShieldCheck,
   Table,
   X,
 } from 'lucide-react';
 import { GOOGLE_SHEET_URL } from '../config/appsScriptUrl';
-import { fetchAdminSheetData } from '../services/employeeApi';
+import {
+  fetchAdminSheetData,
+  resolveVerifiedSheetUrls,
+} from '../services/employeeApi';
 import type { AdminSheetRow } from '../types/employee';
+
+export interface VerifiedAdminSession {
+  adminKey: string;
+  sheetName: string;
+  tabUrl: string;
+  spreadsheetUrl: string;
+  rows: AdminSheetRow[];
+}
 
 interface AdminSheetModalProps {
   isOpen: boolean;
+  adminSession: VerifiedAdminSession | null;
+  onVerified: (session: VerifiedAdminSession) => void;
+  onLock: () => void;
   onClose: () => void;
   onOpenSetupGuide: () => void;
   onSelectEhrms?: (ehrmsCode: string) => void;
 }
 
+const PAGE_SIZE = 25;
+
 export function AdminSheetModal({
   isOpen,
+  adminSession,
+  onVerified,
+  onLock,
   onClose,
   onOpenSetupGuide,
   onSelectEhrms,
 }: AdminSheetModalProps) {
   const [passcode, setPasscode] = useState('');
-  const [verifiedKey, setVerifiedKey] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [needsScriptUpdate, setNeedsScriptUpdate] = useState(false);
 
-  const [sheetName, setSheetName] = useState('EmployeeData');
-  const [sheetUrl, setSheetUrl] = useState(GOOGLE_SHEET_URL);
-  const [rows, setRows] = useState<AdminSheetRow[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'submitted' | 'pending'>('all');
+  const [currentPage, setCurrentPage] = useState(1);
+  const [jumpRowInput, setJumpRowInput] = useState('');
+  const [highlightedRow, setHighlightedRow] = useState<number | null>(null);
+  const [copiedLink, setCopiedLink] = useState(false);
+
+  const rows = adminSession?.rows ?? [];
+  const sheetName = adminSession?.sheetName ?? 'EmployeeData';
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchQuery, statusFilter]);
 
   const loadSheetData = async (keyToUse: string) => {
     setIsLoading(true);
@@ -58,12 +92,16 @@ export function AdminSheetModal({
         return false;
       }
 
-      setVerifiedKey(keyToUse);
-      setSheetName(res.sheetName || 'EmployeeData');
-      if (res.sheetUrl) {
-        setSheetUrl(res.sheetUrl);
-      }
-      setRows(res.rows || []);
+      const { tabUrl, spreadsheetUrl } = resolveVerifiedSheetUrls(res, GOOGLE_SHEET_URL);
+
+      onVerified({
+        adminKey: keyToUse,
+        sheetName: res.sheetName || 'EmployeeData',
+        tabUrl,
+        spreadsheetUrl,
+        rows: res.rows || [],
+      });
+      setPasscode('');
       return true;
     } catch (err) {
       setError(
@@ -85,12 +123,27 @@ export function AdminSheetModal({
   };
 
   const handleLock = () => {
-    setVerifiedKey(null);
     setPasscode('');
-    setRows([]);
     setError(null);
+    setNeedsScriptUpdate(false);
     setSearchQuery('');
     setStatusFilter('all');
+    setCurrentPage(1);
+    setJumpRowInput('');
+    setHighlightedRow(null);
+    setCopiedLink(false);
+    onLock();
+  };
+
+  const handleCopySheetUrl = async () => {
+    if (!adminSession) return;
+    try {
+      await navigator.clipboard.writeText(adminSession.tabUrl);
+      setCopiedLink(true);
+      window.setTimeout(() => setCopiedLink(false), 2000);
+    } catch {
+      setCopiedLink(false);
+    }
   };
 
   const stats = useMemo(() => {
@@ -120,6 +173,30 @@ export function AdminSheetModal({
     });
   }, [rows, searchQuery, statusFilter]);
 
+  const totalPages = Math.max(1, Math.ceil(filteredRows.length / PAGE_SIZE));
+  const safePage = Math.min(currentPage, totalPages);
+
+  const paginatedRows = useMemo(() => {
+    const start = (safePage - 1) * PAGE_SIZE;
+    return filteredRows.slice(start, start + PAGE_SIZE);
+  }, [filteredRows, safePage]);
+
+  const handleJumpToRow = (e: FormEvent) => {
+    e.preventDefault();
+    const targetRow = Number(jumpRowInput.trim());
+    if (!Number.isInteger(targetRow) || targetRow < 2) return;
+
+    const indexInAll = rows.findIndex((item) => item.rowNumber === targetRow);
+    if (indexInAll === -1) return;
+
+    setStatusFilter('all');
+    setSearchQuery('');
+    const targetPage = Math.floor(indexInAll / PAGE_SIZE) + 1;
+    setCurrentPage(targetPage);
+    setHighlightedRow(targetRow);
+    window.setTimeout(() => setHighlightedRow(null), 2500);
+  };
+
   if (!isOpen) return null;
 
   return (
@@ -131,12 +208,12 @@ export function AdminSheetModal({
     >
       <div
         className={`bg-white border border-slate-200 rounded-xl w-full flex flex-col shadow-lg ${
-          verifiedKey ? 'max-w-6xl max-h-[90vh]' : 'max-w-md'
+          adminSession ? 'max-w-6xl max-h-[92vh]' : 'max-w-md'
         }`}
       >
         <div className="flex items-center justify-between gap-4 px-6 py-4 border-b border-slate-200">
           <div className="flex items-center gap-2.5 min-w-0">
-            {verifiedKey ? (
+            {adminSession ? (
               <Table className="w-5 h-5 text-blue-800 shrink-0" aria-hidden="true" />
             ) : (
               <Lock className="w-5 h-5 text-slate-700 shrink-0" aria-hidden="true" />
@@ -146,26 +223,26 @@ export function AdminSheetModal({
                 id="admin-sheet-title"
                 className="text-lg font-semibold text-slate-900 truncate"
               >
-                {verifiedKey ? `Google Sheet: ${sheetName}` : 'Admin / Developer Access'}
+                {adminSession ? `Google Sheet: ${sheetName}` : 'Admin Verification Required'}
               </h2>
-              {verifiedKey ? (
+              {adminSession ? (
                 <p className="text-xs text-slate-500 font-mono tabular-nums mt-0.5">
                   Total: {stats.total} · Submitted: {stats.submitted} · Pending: {stats.pending}
                 </p>
               ) : (
                 <p className="text-xs text-slate-500 mt-0.5">
-                  Restricted to app developer / administrator only.
+                  Google Sheet navigation controls unlock only after Admin verification.
                 </p>
               )}
             </div>
           </div>
 
           <div className="flex items-center gap-2 shrink-0">
-            {verifiedKey && (
+            {adminSession && (
               <>
                 <button
                   type="button"
-                  onClick={() => loadSheetData(verifiedKey)}
+                  onClick={() => loadSheetData(adminSession.adminKey)}
                   disabled={isLoading}
                   className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 rounded-lg transition-colors whitespace-nowrap shrink-0 disabled:opacity-60"
                 >
@@ -175,20 +252,12 @@ export function AdminSheetModal({
                   />
                   Refresh
                 </button>
-                <a
-                  href={sheetUrl || GOOGLE_SHEET_URL}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-white bg-blue-800 hover:bg-blue-900 rounded-lg transition-colors whitespace-nowrap shrink-0"
-                >
-                  Open Google Sheet
-                  <ExternalLink className="w-3.5 h-3.5" aria-hidden="true" />
-                </a>
                 <button
                   type="button"
                   onClick={handleLock}
-                  className="px-3 py-1.5 text-xs font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors whitespace-nowrap shrink-0"
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors whitespace-nowrap shrink-0"
                 >
+                  <Lock className="w-3.5 h-3.5" aria-hidden="true" />
                   Lock
                 </button>
               </>
@@ -196,7 +265,7 @@ export function AdminSheetModal({
             <button
               type="button"
               onClick={onClose}
-              aria-label="Close Google Sheet viewer"
+              aria-label="Close Google Sheet modal"
               className="p-1.5 text-slate-500 hover:text-slate-900 rounded-lg hover:bg-slate-100 transition-colors"
             >
               <X className="w-5 h-5" />
@@ -204,18 +273,19 @@ export function AdminSheetModal({
           </div>
         </div>
 
-        {!verifiedKey ? (
+        {!adminSession ? (
           <form onSubmit={handleUnlock} className="p-6 space-y-5">
             <div>
               <label
                 htmlFor="admin-passcode-input"
                 className="block text-xs font-medium text-slate-700 mb-1.5"
               >
-                Admin Developer Passcode
+                Admin Passcode
               </label>
               <input
                 id="admin-passcode-input"
                 type="password"
+                autoComplete="current-password"
                 value={passcode}
                 onChange={(e) => setPasscode(e.target.value)}
                 placeholder="Enter admin passcode"
@@ -267,30 +337,103 @@ export function AdminSheetModal({
                     Verifying...
                   </>
                 ) : (
-                  'Verify & Show Sheet'
+                  'Verify & Unlock Sheet'
                 )}
               </button>
             </div>
           </form>
         ) : (
           <div className="flex-1 flex flex-col min-h-0">
-            {/* Toolbar */}
-            <div className="px-6 py-4 border-b border-slate-200 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 bg-slate-50">
-              <div className="relative flex-1 max-w-sm">
-                <Search
-                  className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none"
-                  aria-hidden="true"
-                />
-                <input
-                  type="text"
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="Search EHRMS, name, school, mobile..."
-                  className="w-full rounded-lg border border-slate-300 bg-white pl-9 pr-3 py-2 text-xs text-slate-900 placeholder:text-slate-400 focus:border-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-700/15"
-                />
+            {/* Verified Google Sheet Navigation Controls */}
+            <div className="px-6 py-3.5 bg-blue-50/60 border-b border-slate-200 flex flex-wrap items-center justify-between gap-3">
+              <div className="flex items-center gap-2 text-xs font-medium text-blue-950">
+                <ShieldCheck className="w-4 h-4 text-emerald-700 shrink-0" aria-hidden="true" />
+                <span>Admin Verified · Google Sheet Navigation</span>
               </div>
 
-              <div className="flex items-center gap-1 p-1 bg-slate-200/70 rounded-lg shrink-0">
+              <div className="flex flex-wrap items-center gap-2">
+                <a
+                  href={adminSession.tabUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-white bg-blue-800 hover:bg-blue-900 rounded-lg transition-colors whitespace-nowrap shrink-0"
+                >
+                  <FileSpreadsheet className="w-3.5 h-3.5" aria-hidden="true" />
+                  Open {sheetName} Tab
+                  <ExternalLink className="w-3.5 h-3.5" aria-hidden="true" />
+                </a>
+
+                <a
+                  href={adminSession.spreadsheetUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 rounded-lg transition-colors whitespace-nowrap shrink-0"
+                >
+                  Open Workbook
+                  <ExternalLink className="w-3.5 h-3.5" aria-hidden="true" />
+                </a>
+
+                <button
+                  type="button"
+                  onClick={handleCopySheetUrl}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 rounded-lg transition-colors whitespace-nowrap shrink-0"
+                >
+                  {copiedLink ? (
+                    <>
+                      <Check className="w-3.5 h-3.5 text-emerald-700" aria-hidden="true" />
+                      Copied URL
+                    </>
+                  ) : (
+                    <>
+                      <Copy className="w-3.5 h-3.5" aria-hidden="true" />
+                      Copy Sheet Link
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+
+            {/* Search, Filter & Row Jump Toolbar */}
+            <div className="px-6 py-3.5 border-b border-slate-200 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3 bg-slate-50">
+              <div className="flex flex-wrap items-center gap-2.5 flex-1">
+                <div className="relative flex-1 min-w-52 max-w-sm">
+                  <Search
+                    className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none"
+                    aria-hidden="true"
+                  />
+                  <input
+                    type="text"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    placeholder="Search EHRMS, name, school, mobile..."
+                    className="w-full rounded-lg border border-slate-300 bg-white pl-9 pr-3 py-2 text-xs text-slate-900 placeholder:text-slate-400 focus:border-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-700/15"
+                  />
+                </div>
+
+                <form onSubmit={handleJumpToRow} className="flex items-center gap-1.5">
+                  <label htmlFor="jump-to-row-input" className="sr-only">
+                    Jump to Sheet Row
+                  </label>
+                  <input
+                    id="jump-to-row-input"
+                    type="number"
+                    min={2}
+                    max={rows.length + 1}
+                    value={jumpRowInput}
+                    onChange={(e) => setJumpRowInput(e.target.value)}
+                    placeholder="Row #"
+                    className="w-20 rounded-lg border border-slate-300 bg-white px-2.5 py-2 text-xs font-mono tabular-nums text-slate-900 placeholder:font-sans placeholder:text-slate-400 focus:border-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-700/15"
+                  />
+                  <button
+                    type="submit"
+                    className="px-2.5 py-2 text-xs font-medium text-slate-700 bg-white border border-slate-300 hover:bg-slate-100 rounded-lg transition-colors whitespace-nowrap shrink-0"
+                  >
+                    Go
+                  </button>
+                </form>
+              </div>
+
+              <div className="flex items-center gap-1 p-1 bg-slate-200/70 rounded-lg shrink-0 self-start lg:self-auto">
                 {(
                   [
                     { id: 'all', label: `All (${stats.total})` },
@@ -316,7 +459,7 @@ export function AdminSheetModal({
 
             {/* Table Viewport */}
             <div className="flex-1 overflow-auto">
-              {filteredRows.length === 0 ? (
+              {paginatedRows.length === 0 ? (
                 <div className="p-12 text-center text-sm text-slate-500">
                   No matching employee records found in {sheetName}.
                 </div>
@@ -340,12 +483,15 @@ export function AdminSheetModal({
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-200">
-                    {filteredRows.map((item) => {
+                    {paginatedRows.map((item) => {
                       const emp = item.employee;
+                      const isHighlighted = highlightedRow === item.rowNumber;
                       return (
                         <tr
                           key={`${item.rowNumber}-${emp.ehrmsCode}`}
-                          className="hover:bg-slate-50 transition-colors"
+                          className={`transition-colors ${
+                            isHighlighted ? 'bg-blue-50' : 'hover:bg-slate-50'
+                          }`}
                         >
                           <td className="py-2.5 px-3 font-mono tabular-nums text-slate-500 whitespace-nowrap">
                             {item.rowNumber}
@@ -410,6 +556,56 @@ export function AdminSheetModal({
                   </tbody>
                 </table>
               )}
+            </div>
+
+            {/* Sheet Pagination Footer */}
+            <div className="px-6 py-3 border-t border-slate-200 bg-slate-50 flex flex-wrap items-center justify-between gap-3 text-xs text-slate-600">
+              <span className="font-mono tabular-nums">
+                Showing {filteredRows.length === 0 ? 0 : (safePage - 1) * PAGE_SIZE + 1}–
+                {Math.min(safePage * PAGE_SIZE, filteredRows.length)} of {filteredRows.length} rows
+              </span>
+
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => setCurrentPage(1)}
+                  disabled={safePage <= 1}
+                  aria-label="First page"
+                  className="p-1.5 text-slate-700 bg-white border border-slate-300 hover:bg-slate-100 rounded-md disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                >
+                  <ChevronsLeft className="w-3.5 h-3.5" aria-hidden="true" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                  disabled={safePage <= 1}
+                  aria-label="Previous page"
+                  className="p-1.5 text-slate-700 bg-white border border-slate-300 hover:bg-slate-100 rounded-md disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                >
+                  <ChevronLeft className="w-3.5 h-3.5" aria-hidden="true" />
+                </button>
+                <span className="px-2.5 font-mono tabular-nums text-slate-800 font-medium">
+                  Page {safePage} / {totalPages}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                  disabled={safePage >= totalPages}
+                  aria-label="Next page"
+                  className="p-1.5 text-slate-700 bg-white border border-slate-300 hover:bg-slate-100 rounded-md disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                >
+                  <ChevronRight className="w-3.5 h-3.5" aria-hidden="true" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setCurrentPage(totalPages)}
+                  disabled={safePage >= totalPages}
+                  aria-label="Last page"
+                  className="p-1.5 text-slate-700 bg-white border border-slate-300 hover:bg-slate-100 rounded-md disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                >
+                  <ChevronsRight className="w-3.5 h-3.5" aria-hidden="true" />
+                </button>
+              </div>
             </div>
           </div>
         )}

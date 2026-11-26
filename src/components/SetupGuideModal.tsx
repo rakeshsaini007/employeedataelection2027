@@ -1,11 +1,15 @@
 import { useState } from 'react';
 import { Check, Copy, X } from 'lucide-react';
-import appsScriptCode from '../../code.js?raw';
 
 interface SetupGuideModalProps {
   isOpen: boolean;
   onClose: () => void;
 }
+
+const APPS_SCRIPT_TEMPLATE_NOTE = `// Copy the contents of /code.js from the project root into Apps Script (Code.gs)
+// and set your ADMIN_PASSCODE in Project Settings -> Script Properties (or in code.js).
+// Then deploy as Web App (Execute as: Me, Who has access: Anyone) and paste the /exec URL
+// into src/config/appsScriptUrl.ts.`;
 
 export function SetupGuideModal({ isOpen, onClose }: SetupGuideModalProps) {
   const [copied, setCopied] = useState(false);
@@ -14,7 +18,7 @@ export function SetupGuideModal({ isOpen, onClose }: SetupGuideModalProps) {
 
   const handleCopy = async () => {
     try {
-      await navigator.clipboard.writeText(appsScriptCode);
+      await navigator.clipboard.writeText(APPS_SCRIPT_TEMPLATE_NOTE);
       setCopied(true);
       setTimeout(() => setCopied(false), 2500);
     } catch {
@@ -90,7 +94,7 @@ export function SetupGuideModal({ isOpen, onClose }: SetupGuideModalProps) {
               </button>
             </div>
             <pre className="p-4 text-xs font-mono text-slate-800 bg-slate-50 overflow-x-auto max-h-72 leading-relaxed">
-              <code>{appsScriptCode}</code>
+              <code>{APPS_SCRIPT_TEMPLATE_NOTE}</code>
             </pre>
           </div>
         </div>

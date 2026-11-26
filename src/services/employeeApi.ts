@@ -73,6 +73,42 @@ export async function fetchAdminSheetData(adminKey: string): Promise<AdminSheetR
   return data;
 }
 
+export function isSafeGoogleSheetUrl(rawUrl: string | undefined): rawUrl is string {
+  if (!rawUrl) return false;
+  try {
+    const parsed = new URL(rawUrl.trim());
+    return parsed.protocol === 'https:' && parsed.hostname === 'docs.google.com';
+  } catch {
+    return false;
+  }
+}
+
+export function resolveVerifiedSheetUrls(
+  res: AdminSheetResponse,
+  fallbackTabUrl: string
+): { tabUrl: string; spreadsheetUrl: string } {
+  const safeSpreadsheetUrl = isSafeGoogleSheetUrl(res.spreadsheetUrl)
+    ? res.spreadsheetUrl.trim()
+    : isSafeGoogleSheetUrl(res.sheetUrl)
+      ? res.sheetUrl.trim().split('#')[0]
+      : isSafeGoogleSheetUrl(fallbackTabUrl)
+        ? fallbackTabUrl.trim().split('#')[0]
+        : 'https://docs.google.com/spreadsheets';
+
+  const safeTabUrl = isSafeGoogleSheetUrl(res.tabUrl)
+    ? res.tabUrl.trim()
+    : isSafeGoogleSheetUrl(res.sheetUrl) && res.sheetUrl.includes('#gid=')
+      ? res.sheetUrl.trim()
+      : isSafeGoogleSheetUrl(fallbackTabUrl)
+        ? fallbackTabUrl.trim()
+        : safeSpreadsheetUrl;
+
+  return {
+    tabUrl: safeTabUrl,
+    spreadsheetUrl: safeSpreadsheetUrl,
+  };
+}
+
 export async function saveOrUpdateEmployee(employee: EmployeeRecord): Promise<SaveResponse> {
   if (!isAppsScriptConfigured()) {
     throw new Error(

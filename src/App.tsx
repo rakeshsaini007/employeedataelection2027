@@ -5,9 +5,10 @@ import {
   CheckCircle2,
   ExternalLink,
   Loader2,
+  Lock,
   Search,
+  Table,
 } from 'lucide-react';
-import { GOOGLE_SHEET_URL } from './config/appsScriptUrl';
 import {
   isAppsScriptConfigured,
   lookupEmployeeByEhrms,
@@ -20,6 +21,8 @@ import { ExistingRecordCard } from './components/ExistingRecordCard';
 import { EmployeeDataForm } from './components/EmployeeDataForm';
 import { AlertModal } from './components/AlertModal';
 import { SetupGuideModal } from './components/SetupGuideModal';
+import { AdminSheetModal } from './components/AdminSheetModal';
+import type { VerifiedAdminSession } from './components/AdminSheetModal';
 import { transliterateEnglishSegments } from './utils/hindiTransliterate';
 
 export default function App() {
@@ -56,6 +59,8 @@ export default function App() {
   });
 
   const [isSetupOpen, setIsSetupOpen] = useState(false);
+  const [isAdminModalOpen, setIsAdminModalOpen] = useState(false);
+  const [adminSession, setAdminSession] = useState<VerifiedAdminSession | null>(null);
   const appsScriptConfigured = isAppsScriptConfigured();
   const lastAutoSearchedRef = useRef<string>('');
 
@@ -184,11 +189,22 @@ export default function App() {
     }
 
     let submissionData = { ...formData };
-    const transliterateFields: Array<'employeeNameHi' | 'nativeAssembly' | 'homeDistrict' | 'epicAssemblyName'> = [
+    const transliterateFields: Array<
+      | 'employeeNameHi'
+      | 'residenceAssembly'
+      | 'nativeAssembly'
+      | 'homeDistrict'
+      | 'epicAssemblyName'
+      | 'bankName'
+      | 'branchName'
+    > = [
       'employeeNameHi',
+      'residenceAssembly',
       'nativeAssembly',
       'homeDistrict',
       'epicAssemblyName',
+      'bankName',
+      'branchName',
     ];
     let didTransliterate = false;
     for (const field of transliterateFields) {
@@ -323,16 +339,47 @@ export default function App() {
             )}
           </nav>
 
-          <div className="flex items-center gap-2.5 shrink-0">
-            <a
-              href={GOOGLE_SHEET_URL}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-white bg-blue-800 hover:bg-blue-900 rounded-lg transition-colors whitespace-nowrap shrink-0"
-            >
-              Open Google Sheet
-              <ExternalLink className="w-3.5 h-3.5" aria-hidden="true" />
-            </a>
+          <div className="flex items-center gap-2 shrink-0">
+            {adminSession ? (
+              <>
+                <button
+                  type="button"
+                  onClick={() => setIsAdminModalOpen(true)}
+                  className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 rounded-lg transition-colors whitespace-nowrap shrink-0"
+                >
+                  <Table className="w-3.5 h-3.5 text-blue-800" aria-hidden="true" />
+                  Sheet Viewer
+                </button>
+                <a
+                  href={adminSession.tabUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-white bg-blue-800 hover:bg-blue-900 rounded-lg transition-colors whitespace-nowrap shrink-0"
+                >
+                  Open Google Sheet
+                  <ExternalLink className="w-3.5 h-3.5" aria-hidden="true" />
+                </a>
+                <button
+                  type="button"
+                  onClick={() => setAdminSession(null)}
+                  title="Lock Admin Sheet Access"
+                  aria-label="Lock Admin Sheet Access"
+                  className="inline-flex items-center gap-1 px-2.5 py-2 text-xs font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors whitespace-nowrap shrink-0"
+                >
+                  <Lock className="w-3.5 h-3.5" aria-hidden="true" />
+                  <span className="hidden sm:inline">Lock</span>
+                </button>
+              </>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setIsAdminModalOpen(true)}
+                className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 rounded-lg transition-colors whitespace-nowrap shrink-0"
+              >
+                <Lock className="w-3.5 h-3.5 text-slate-600" aria-hidden="true" />
+                Admin Sheet Access
+              </button>
+            )}
           </div>
         </div>
       </header>
@@ -500,6 +547,19 @@ export default function App() {
       <SetupGuideModal
         isOpen={isSetupOpen}
         onClose={() => setIsSetupOpen(false)}
+      />
+
+      <AdminSheetModal
+        isOpen={isAdminModalOpen}
+        adminSession={adminSession}
+        onVerified={(session) => setAdminSession(session)}
+        onLock={() => setAdminSession(null)}
+        onClose={() => setIsAdminModalOpen(false)}
+        onOpenSetupGuide={() => setIsSetupOpen(true)}
+        onSelectEhrms={(code) => {
+          setEhrmsInput(code);
+          performLookup(code);
+        }}
       />
     </div>
   );
