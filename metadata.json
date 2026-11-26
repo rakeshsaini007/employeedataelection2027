@@ -1,0 +1,6 @@
+{
+  "name": "EmployeeData Election Portal",
+  "description": "Bilingual employee data lookup, collection, and update portal integrated with Google Sheets via Google Apps Script.",
+  "requestFramePermissions": [],
+  "majorCapabilities": []
+}
