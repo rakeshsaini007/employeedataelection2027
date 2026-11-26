@@ -471,15 +471,7 @@ export function EmployeeDataForm({
       onSubmit={onSubmit}
       className="bg-white border border-slate-200 rounded-xl p-6 sm:p-8 space-y-10"
     >
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 pb-5 border-b border-slate-200">
-        <div>
-          <h2 className="text-xl font-semibold text-slate-900">
-            Employee Information Form (कर्मचारी विवरण प्रपत्र)
-          </h2>
-          <p className="text-sm text-slate-600 mt-1">
-            Verify pre-filled particulars and complete all remaining fields accurately for Election 2027 records.
-          </p>
-        </div>
+      <div className="flex items-center justify-end pb-4 border-b border-slate-200">
         <span className="text-xs font-medium text-slate-600 shrink-0">
           {hasExistingData ? 'Mode: Update Existing Row' : 'Mode: New Submission'}
         </span>
@@ -858,13 +850,7 @@ export function EmployeeDataForm({
       )}
 
       {/* Action Footer */}
-      <div className="pt-6 border-t border-slate-200 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <p className="text-xs text-slate-500">
-          {hasExistingData
-            ? 'Existing data is already recorded for this EHRMS code. Clicking Update will overwrite the row in EmployeeData.'
-            : 'Submitting will store this information into your matching EHRMS row in the EmployeeData sheet.'}
-        </p>
-
+      <div className="pt-6 border-t border-slate-200 flex justify-end">
         <button
           type="submit"
           disabled={isSubmitting}

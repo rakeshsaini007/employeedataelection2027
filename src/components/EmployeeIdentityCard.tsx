@@ -31,15 +31,9 @@ export function EmployeeIdentityCard({
     >
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 pb-5 border-b border-slate-200">
         <div>
-          <p className="text-xs font-medium text-slate-500">
-            Fetched from EmployeeData
-            {rowNumber ? ` · Sheet Row ${rowNumber}` : ''}
-            {' · '}
-            {hasExistingData ? 'Record Status: Existing Data Found' : 'Record Status: New Entry'}
-          </p>
           <h2
             id="employee-identity-heading"
-            className="text-xl font-semibold text-slate-900 mt-1"
+            className="text-xl font-semibold text-slate-900"
           >
             {employee.employeeNameEn || employee.employeeNameHi || `EHRMS ${employee.ehrmsCode}`}
           </h2>

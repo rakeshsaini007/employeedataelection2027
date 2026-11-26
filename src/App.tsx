@@ -418,21 +418,9 @@ export default function App() {
           id="lookup-section"
           className="bg-white border border-slate-200 rounded-xl p-6 sm:p-8"
         >
-          <div className="max-w-2xl">
-            <p className="text-xs font-medium text-slate-500">
-              विधानसभा सामान्य निर्वाचन - 2027 · EmployeeData Sheet Integration
-            </p>
-            <h1 className="text-2xl sm:text-3xl font-bold text-slate-900 mt-1.5 text-balance">
-              Employee Data Lookup &amp; Submission
-            </h1>
-            <p className="text-sm sm:text-base text-slate-600 mt-2 leading-relaxed">
-              Enter your EHRMS Code below to automatically fetch your Name and Department details from the EmployeeData Google Sheet.
-            </p>
-          </div>
-
           <form
             onSubmit={handleLookupSubmit}
-            className="mt-6 flex flex-col sm:flex-row gap-3 max-w-xl"
+            className="flex flex-col sm:flex-row gap-3 max-w-xl"
           >
             <div className="flex-1">
               <label htmlFor="ehrms-lookup-input" className="sr-only">
