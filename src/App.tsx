@@ -6,7 +6,6 @@ import {
   ExternalLink,
   Loader2,
   Search,
-  Table,
 } from 'lucide-react';
 import { GOOGLE_SHEET_URL } from './config/appsScriptUrl';
 import {
@@ -21,7 +20,7 @@ import { ExistingRecordCard } from './components/ExistingRecordCard';
 import { EmployeeDataForm } from './components/EmployeeDataForm';
 import { AlertModal } from './components/AlertModal';
 import { SetupGuideModal } from './components/SetupGuideModal';
-import { AdminSheetModal } from './components/AdminSheetModal';
+import { transliterateEnglishSegments } from './utils/hindiTransliterate';
 
 export default function App() {
   const [ehrmsInput, setEhrmsInput] = useState('');
@@ -57,7 +56,6 @@ export default function App() {
   });
 
   const [isSetupOpen, setIsSetupOpen] = useState(false);
-  const [isAdminSheetOpen, setIsAdminSheetOpen] = useState(false);
   const appsScriptConfigured = isAppsScriptConfigured();
   const lastAutoSearchedRef = useRef<string>('');
 
@@ -185,59 +183,77 @@ export default function App() {
       return;
     }
 
-    if (/[^\u0900-\u097F\s.\-]/.test(formData.employeeNameHi.trim())) {
+    let submissionData = { ...formData };
+    const transliterateFields: Array<'employeeNameHi' | 'nativeAssembly' | 'homeDistrict' | 'epicAssemblyName'> = [
+      'employeeNameHi',
+      'nativeAssembly',
+      'homeDistrict',
+      'epicAssemblyName',
+    ];
+    let didTransliterate = false;
+    for (const field of transliterateFields) {
+      if (/[A-Za-z]/.test(submissionData[field])) {
+        submissionData[field] = await transliterateEnglishSegments(submissionData[field]);
+        didTransliterate = true;
+      }
+    }
+    if (didTransliterate) {
+      setFormData(submissionData);
+    }
+
+    if (/[^\u0900-\u097F\s.\-]/.test(submissionData.employeeNameHi.trim())) {
       setValidationError('कर्मचारी का नाम केवल हिन्दी (देवनागरी) भाषा में ही दर्ज करें।');
       return;
     }
 
-    if (/[^\u0900-\u097F0-9\s.\-]/.test(formData.residenceAssembly.trim())) {
+    if (/[^\u0900-\u097F0-9\s.\-]/.test(submissionData.residenceAssembly.trim())) {
       setValidationError('निवास विधान सभा क्षेत्र का नाम केवल हिन्दी (देवनागरी) भाषा में ही दर्ज करें।');
       return;
     }
 
-    if (/[^\u0900-\u097F0-9\s.\-]/.test(formData.nativeAssembly.trim())) {
+    if (/[^\u0900-\u097F0-9\s.\-]/.test(submissionData.nativeAssembly.trim())) {
       setValidationError('मूल निवासी विधान सभा क्षेत्र का नाम केवल हिन्दी (देवनागरी) भाषा में ही दर्ज करें।');
       return;
     }
 
-    if (/[^\u0900-\u097F\s.\-]/.test(formData.homeDistrict.trim())) {
+    if (/[^\u0900-\u097F\s.\-]/.test(submissionData.homeDistrict.trim())) {
       setValidationError('गृह जनपद का नाम केवल हिन्दी (देवनागरी) भाषा में ही दर्ज करें।');
       return;
     }
 
-    if (/[^\u0900-\u097F0-9\s.\-]/.test(formData.epicAssemblyName.trim())) {
+    if (/[^\u0900-\u097F0-9\s.\-]/.test(submissionData.epicAssemblyName.trim())) {
       setValidationError('EPIC विधान सभा क्षेत्र का नाम केवल हिन्दी (देवनागरी) भाषा में ही दर्ज करें।');
       return;
     }
 
-    if (!/^\d+$/.test(formData.epicAssemblyNo.trim())) {
-      setValidationError('EPIC विधान सभा क्षेत्र संख्या केवल अंकों (Numeric) में दर्ज करें।');
-      return;
-    }
-
-    if (!/^\d+$/.test(formData.boothNumber.trim())) {
-      setValidationError('बूथ संख्या (Booth Number) केवल अंकों (Numeric) में दर्ज करें।');
-      return;
-    }
-
-    if (!/^\d+$/.test(formData.voterSerialNo.trim())) {
-      setValidationError('मतदाता क्रमांक (Voter Serial No.) केवल अंकों (Numeric) में दर्ज करें।');
-      return;
-    }
-
-    if (!/^\d{10}$/.test(formData.mobileNo.trim())) {
+    if (!/^\d{10}$/.test(submissionData.mobileNo.trim())) {
       setValidationError('Mobile number must be exactly 10 digits.');
       return;
     }
 
-    if (!/^\d{11,}$/.test(formData.accountNumber.trim())) {
+    if (!/^\d+$/.test(submissionData.epicAssemblyNo.trim())) {
+      setValidationError('EPIC विधान सभा क्षेत्र संख्या केवल अंकों (Numeric) में दर्ज करें।');
+      return;
+    }
+
+    if (!/^\d+$/.test(submissionData.boothNumber.trim())) {
+      setValidationError('बूथ संख्या (Booth Number) केवल अंकों (Numeric) में दर्ज करें।');
+      return;
+    }
+
+    if (!/^\d+$/.test(submissionData.voterSerialNo.trim())) {
+      setValidationError('मतदाता क्रमांक (Voter Serial No.) केवल अंकों (Numeric) में दर्ज करें।');
+      return;
+    }
+
+    if (!/^\d{11,}$/.test(submissionData.accountNumber.trim())) {
       setValidationError(
         'Bank Account Number must be numeric and greater than 10 digits (at least 11 digits).'
       );
       return;
     }
 
-    if (!/^[A-Z]{4}0[A-Z0-9]{6}$/.test(formData.ifscCode.trim())) {
+    if (!/^[A-Z]{4}0[A-Z0-9]{6}$/.test(submissionData.ifscCode.trim())) {
       setValidationError(
         'IFSC Code must follow standard format: 4 letters, 5th character must be 0, and 6 alphanumeric characters (e.g. SBIN0001234).'
       );
@@ -246,7 +262,7 @@ export default function App() {
 
     setIsSubmitting(true);
     try {
-      const res = await saveOrUpdateEmployee(formData);
+      const res = await saveOrUpdateEmployee(submissionData);
       if (!res.success || !res.employee) {
         setValidationError(res.error || 'Failed to save data. Please try again.');
         return;
@@ -308,14 +324,6 @@ export default function App() {
           </nav>
 
           <div className="flex items-center gap-2.5 shrink-0">
-            <button
-              type="button"
-              onClick={() => setIsAdminSheetOpen(true)}
-              className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-slate-800 bg-white border border-slate-300 hover:bg-slate-50 rounded-lg transition-colors whitespace-nowrap shrink-0 cursor-pointer"
-            >
-              <Table className="w-3.5 h-3.5 text-slate-600" aria-hidden="true" />
-              Show Google Sheet
-            </button>
             <a
               href={GOOGLE_SHEET_URL}
               target="_blank"
@@ -492,16 +500,6 @@ export default function App() {
       <SetupGuideModal
         isOpen={isSetupOpen}
         onClose={() => setIsSetupOpen(false)}
-      />
-
-      <AdminSheetModal
-        isOpen={isAdminSheetOpen}
-        onClose={() => setIsAdminSheetOpen(false)}
-        onOpenSetupGuide={() => setIsSetupOpen(true)}
-        onSelectEhrms={(code) => {
-          setEhrmsInput(code);
-          performLookup(code);
-        }}
       />
     </div>
   );

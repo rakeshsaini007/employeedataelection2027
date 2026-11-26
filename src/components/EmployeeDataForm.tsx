@@ -1,6 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
 import { Loader2, Save, RefreshCw } from 'lucide-react';
+import {
+  transliterateEnglishSegments,
+  transliteratePreviewSync,
+} from '../utils/hindiTransliterate';
 import type { EmployeeRecord } from '../types/employee';
 
 interface EmployeeDataFormProps {
@@ -141,6 +145,7 @@ function HindiTextField({
   placeholder = 'केवल हिन्दी में लिखें',
   required = false,
   allowDigits = false,
+  autoTransliterate = false,
 }: {
   id: string;
   label: string;
@@ -149,15 +154,49 @@ function HindiTextField({
   placeholder?: string;
   required?: boolean;
   allowDigits?: boolean;
+  autoTransliterate?: boolean;
 }) {
   const isComposingRef = useRef(false);
   const [warning, setWarning] = useState(false);
+  const latestValueRef = useRef(value);
+  latestValueRef.current = value;
 
-  const sanitize = (raw: string) => {
-    const pattern = allowDigits ? /[^\u0900-\u097F0-9\s.\-]/g : /[^\u0900-\u097F\s.\-]/g;
+  const applyAsyncTransliteration = async (snapshot: string) => {
+    const converted = await transliterateEnglishSegments(snapshot);
+    const current = latestValueRef.current;
+    if (current === snapshot) {
+      onChange(converted);
+    } else if (current.startsWith(snapshot)) {
+      onChange(converted + current.slice(snapshot.length));
+    }
+  };
+
+  useEffect(() => {
+    if (!autoTransliterate || !/[A-Za-z]/.test(value)) return;
+    const snapshot = value;
+    const timer = window.setTimeout(() => {
+      void applyAsyncTransliteration(snapshot);
+    }, 900);
+    return () => window.clearTimeout(timer);
+  }, [value, autoTransliterate]);
+
+  const handleInput = (raw: string) => {
+    const pattern = autoTransliterate
+      ? allowDigits
+        ? /[^\u0900-\u097FA-Za-z0-9\s.\-]/g
+        : /[^\u0900-\u097FA-Za-z\s.\-]/g
+      : allowDigits
+        ? /[^\u0900-\u097F0-9\s.\-]/g
+        : /[^\u0900-\u097F\s.\-]/g;
+
     const cleaned = raw.replace(pattern, '');
     setWarning(cleaned !== raw);
+    latestValueRef.current = cleaned;
     onChange(cleaned);
+
+    if (autoTransliterate && /[A-Za-z]+[\s.\-]+$/.test(cleaned)) {
+      void applyAsyncTransliteration(cleaned);
+    }
   };
 
   return (
@@ -178,22 +217,44 @@ function HindiTextField({
         }}
         onCompositionEnd={(e) => {
           isComposingRef.current = false;
-          sanitize(e.currentTarget.value);
+          handleInput(e.currentTarget.value);
+        }}
+        onBlur={(e) => {
+          if (autoTransliterate && /[A-Za-z]/.test(e.currentTarget.value)) {
+            void applyAsyncTransliteration(e.currentTarget.value);
+          }
         }}
         onChange={(e) => {
           if (isComposingRef.current) {
             onChange(e.target.value);
           } else {
-            sanitize(e.target.value);
+            handleInput(e.target.value);
           }
         }}
         className={inputClassName}
       />
-      {warning && (
-        <p className="mt-1 text-xs text-amber-700">
-          केवल हिन्दी (देवनागरी) भाषा में ही लिखें।
+      {autoTransliterate && /[A-Za-z]/.test(value) ? (
+        <p className="mt-1 text-xs text-blue-700">
+          हिन्दी:{' '}
+          <button
+            type="button"
+            onClick={() => void applyAsyncTransliteration(value)}
+            className="font-semibold underline underline-offset-2 cursor-pointer"
+          >
+            {transliteratePreviewSync(value)}
+          </button>
         </p>
-      )}
+      ) : warning ? (
+        <p className="mt-1 text-xs text-amber-700">
+          {autoTransliterate
+            ? 'केवल हिन्दी या अंग्रेजी अक्षरों में लिखें।'
+            : 'केवल हिन्दी (देवनागरी) भाषा में ही लिखें।'}
+        </p>
+      ) : autoTransliterate ? (
+        <p className="mt-1 text-xs text-slate-500">
+          अंग्रेजी में टाइप करें — Space दबाते ही स्वतः हिन्दी में बदल जाएगा
+        </p>
+      ) : null}
     </div>
   );
 }
@@ -247,11 +308,45 @@ export function EmployeeDataForm({
     formData.ifscCode.trim().length > 0 &&
     !/^[A-Z]{4}0[A-Z0-9]{6}$/.test(formData.ifscCode.trim());
 
-  const sanitizeHindiName = (raw: string) => {
-    const cleaned = raw.replace(/[^\u0900-\u097F\s.\-]/g, '');
-    setHindiInputWarning(cleaned !== raw);
-    onChange('employeeNameHi', cleaned);
+  const latestEmployeeNameHiRef = useRef(formData.employeeNameHi);
+  latestEmployeeNameHiRef.current = formData.employeeNameHi;
+
+  const applyAsyncTransliteration = async (snapshot: string) => {
+    const converted = await transliterateEnglishSegments(snapshot);
+    const current = latestEmployeeNameHiRef.current;
+    if (current === snapshot) {
+      onChange('employeeNameHi', converted);
+    } else if (current.startsWith(snapshot)) {
+      onChange('employeeNameHi', converted + current.slice(snapshot.length));
+    }
   };
+
+  const handleEmployeeNameHiChange = (raw: string) => {
+    // Allow Hindi Devanagari, English letters (for auto-transliteration), spaces, dot, hyphen
+    const cleaned = raw.replace(/[^\u0900-\u097FA-Za-z\s.\-]/g, '');
+    setHindiInputWarning(cleaned !== raw);
+    latestEmployeeNameHiRef.current = cleaned;
+    onChange('employeeNameHi', cleaned);
+
+    // If the user just typed a space/dot/hyphen after an English word, convert completed words immediately
+    if (/[A-Za-z]+[\s.\-]+$/.test(cleaned)) {
+      void applyAsyncTransliteration(cleaned);
+    }
+  };
+
+  const convertRemainingNameToHindi = async (currentVal: string) => {
+    if (!/[A-Za-z]/.test(currentVal)) return;
+    await applyAsyncTransliteration(currentVal);
+  };
+
+  useEffect(() => {
+    if (!/[A-Za-z]/.test(formData.employeeNameHi)) return;
+    const snapshot = formData.employeeNameHi;
+    const timer = window.setTimeout(() => {
+      void convertRemainingNameToHindi(snapshot);
+    }, 900);
+    return () => window.clearTimeout(timer);
+  }, [formData.employeeNameHi]);
 
   const formatDateWithSlashes = (raw: string, previous: string) => {
     const isDeleting = raw.length < previous.length;
@@ -313,26 +408,44 @@ export function EmployeeDataForm({
               lang="hi"
               required
               value={formData.employeeNameHi}
-              placeholder="केवल हिन्दी में लिखें"
+              placeholder="अंग्रेजी में लिखें (स्वतः हिन्दी में बदलेगा)"
               onCompositionStart={() => {
                 isComposingHindiRef.current = true;
               }}
               onCompositionEnd={(e) => {
                 isComposingHindiRef.current = false;
-                sanitizeHindiName(e.currentTarget.value);
+                handleEmployeeNameHiChange(e.currentTarget.value);
+              }}
+              onBlur={(e) => {
+                void convertRemainingNameToHindi(e.currentTarget.value);
               }}
               onChange={(e) => {
                 if (isComposingHindiRef.current) {
                   onChange('employeeNameHi', e.target.value);
                 } else {
-                  sanitizeHindiName(e.target.value);
+                  handleEmployeeNameHiChange(e.target.value);
                 }
               }}
               className={inputClassName}
             />
-            {hindiInputWarning && (
+            {/[A-Za-z]/.test(formData.employeeNameHi) ? (
+              <p className="mt-1 text-xs text-blue-700">
+                हिन्दी:{' '}
+                <button
+                  type="button"
+                  onClick={() => void convertRemainingNameToHindi(formData.employeeNameHi)}
+                  className="font-semibold underline underline-offset-2 cursor-pointer"
+                >
+                  {transliteratePreviewSync(formData.employeeNameHi)}
+                </button>
+              </p>
+            ) : hindiInputWarning ? (
               <p className="mt-1 text-xs text-amber-700">
-                केवल हिन्दी (देवनागरी) भाषा में ही लिखें।
+                केवल हिन्दी या अंग्रेजी अक्षरों में नाम लिखें।
+              </p>
+            ) : (
+              <p className="mt-1 text-xs text-slate-500">
+                अंग्रेजी में टाइप करें — Space दबाते ही स्वतः हिन्दी में बदल जाएगा
               </p>
             )}
           </div>
@@ -461,8 +574,9 @@ export function EmployeeDataForm({
             label="विधान सभा क्षेत्र का नाम जहाँ का मूल निवासी है"
             value={formData.nativeAssembly}
             onChange={(v) => onChange('nativeAssembly', v)}
-            placeholder="केवल हिन्दी में लिखें"
+            placeholder="अंग्रेजी में लिखें (स्वतः हिन्दी में बदलेगा)"
             allowDigits
+            autoTransliterate
             required
           />
           <HindiTextField
@@ -470,7 +584,8 @@ export function EmployeeDataForm({
             label="गृह जनपद का नाम (Home District)"
             value={formData.homeDistrict}
             onChange={(v) => onChange('homeDistrict', v)}
-            placeholder="केवल हिन्दी में लिखें"
+            placeholder="अंग्रेजी में लिखें (स्वतः हिन्दी में बदलेगा)"
+            autoTransliterate
             required
           />
           <TextField
@@ -509,23 +624,21 @@ export function EmployeeDataForm({
             />
           </div>
 
-          <TextField
+          <SelectField
             id="remarks"
             label="अभ्युक्ति (गर्भवती महिला, दिव्यांग, बी०एल०ओ०, गम्भीर बीमार, आवश्यक सेवा, ड्राइवर आदि)"
             value={formData.remarks}
+            options={[
+              'कोई नहीं',
+              'गर्भवती महिला',
+              'दिव्यांग',
+              'बी०एल०ओ०',
+              'गम्भीर रूप से बीमार',
+              'आवश्यक सेवा',
+              'ड्राइवर',
+            ]}
             onChange={(v) => onChange('remarks', v)}
-            listId="remarks-options"
-            placeholder="यदि लागू हो तो लिखें अन्यथा खाली छोड़ें"
           />
-          <datalist id="remarks-options">
-            <option value="कोई नहीं" />
-            <option value="गर्भवती महिला" />
-            <option value="दिव्यांग" />
-            <option value="बी०एल०ओ०" />
-            <option value="गम्भीर रूप से बीमार" />
-            <option value="आवश्यक सेवा" />
-            <option value="ड्राइवर" />
-          </datalist>
         </div>
       </fieldset>
 
@@ -561,8 +674,9 @@ export function EmployeeDataForm({
             label="EPIC विधान सभा क्षेत्र का नाम"
             value={formData.epicAssemblyName}
             onChange={(v) => onChange('epicAssemblyName', v)}
-            placeholder="केवल हिन्दी में लिखें"
+            placeholder="अंग्रेजी में लिखें (स्वतः हिन्दी में बदलेगा)"
             allowDigits
+            autoTransliterate
             required
           />
           <TextField
