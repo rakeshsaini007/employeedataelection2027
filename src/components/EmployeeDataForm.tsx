@@ -662,6 +662,7 @@ export function EmployeeDataForm({
             options={[
               'प्राथमिक शिक्षक-T2',
               'जूनियर हाई स्कूल शिक्षक-T1',
+              'अन्य',
             ]}
             onChange={(v) => onChange('teacherCategory', v)}
             required
