@@ -232,6 +232,8 @@ function syncStatusSheet_(throwIfMissing) {
   var statusEhrmsValues = statusSheet.getRange(2, ehrmsColIdx + 1, rowCount, 1).getValues();
   var existingStatusValues = statusSheet.getRange(2, statusColIdx + 1, rowCount, 1).getValues();
   var outputStatuses = [];
+  var outputBackgrounds = [];
+  var outputFontColors = [];
   var completeCount = 0;
   var pendingCount = 0;
 
@@ -239,18 +241,27 @@ function syncStatusSheet_(throwIfMissing) {
     var rowCode = normalizeCell_(statusEhrmsValues[r][0]).toUpperCase();
     if (!rowCode) {
       outputStatuses.push([existingStatusValues[r][0]]);
+      outputBackgrounds.push([null]);
+      outputFontColors.push([null]);
       continue;
     }
     if (Object.prototype.hasOwnProperty.call(employeeEhrmsMap, rowCode)) {
       outputStatuses.push(['Complete']);
+      outputBackgrounds.push(['#dcfce7']);
+      outputFontColors.push(['#166534']);
       completeCount++;
     } else {
       outputStatuses.push(['Pending']);
+      outputBackgrounds.push(['#fee2e2']);
+      outputFontColors.push(['#991b1b']);
       pendingCount++;
     }
   }
 
-  statusSheet.getRange(2, statusColIdx + 1, rowCount, 1).setValues(outputStatuses);
+  var statusRange = statusSheet.getRange(2, statusColIdx + 1, rowCount, 1);
+  statusRange.setValues(outputStatuses);
+  statusRange.setBackgrounds(outputBackgrounds);
+  statusRange.setFontColors(outputFontColors);
   return {
     updated: completeCount + pendingCount,
     complete: completeCount,
