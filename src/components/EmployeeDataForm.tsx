@@ -6,6 +6,11 @@ import {
   getOfflineHindiSuggestions,
   transliterateEnglishSegments,
 } from '../utils/hindiTransliterate';
+import {
+  BLO_REMARK_OPTION,
+  formatBloRemark,
+  parseBloRemark,
+} from '../utils/bloRemarks';
 import type { EmployeeRecord } from '../types/employee';
 
 interface EmployeeDataFormProps {
@@ -673,21 +678,61 @@ export function EmployeeDataForm({
             />
           </div>
 
-          <SelectField
-            id="remarks"
-            label="अभ्युक्ति (गर्भवती महिला, दिव्यांग, बी०एल०ओ०, गम्भीर बीमार, आवश्यक सेवा, ड्राइवर आदि)"
-            value={formData.remarks}
-            options={[
-              'कोई नहीं',
-              'गर्भवती महिला',
-              'दिव्यांग',
-              'बी०एल०ओ०',
-              'गम्भीर रूप से बीमार',
-              'आवश्यक सेवा',
-              'ड्राइवर',
-            ]}
-            onChange={(v) => onChange('remarks', v)}
-          />
+          {(() => {
+            const bloInfo = parseBloRemark(formData.remarks);
+            return (
+              <>
+                <SelectField
+                  id="remarks"
+                  label="अभ्युक्ति (गर्भवती महिला, दिव्यांग, बी०एल०ओ०, गम्भीर बीमार, आवश्यक सेवा, ड्राइवर आदि)"
+                  value={bloInfo.isBlo ? BLO_REMARK_OPTION : formData.remarks}
+                  options={[
+                    'कोई नहीं',
+                    'गर्भवती महिला',
+                    'दिव्यांग',
+                    BLO_REMARK_OPTION,
+                    'गम्भीर रूप से बीमार',
+                    'आवश्यक सेवा',
+                    'ड्राइवर',
+                  ]}
+                  onChange={(v) => {
+                    if (v === BLO_REMARK_OPTION) {
+                      onChange('remarks', formatBloRemark(bloInfo.assemblyNo, bloInfo.boothNo));
+                    } else {
+                      onChange('remarks', v);
+                    }
+                  }}
+                />
+                {bloInfo.isBlo && (
+                  <>
+                    <SelectField
+                      id="bloAssemblyNo"
+                      label="विधान सभा क्षेत्र का नाम जहाँ वर्तमान में BLO हैं"
+                      value={bloInfo.assemblyNo.trim()}
+                      options={RESIDENCE_ASSEMBLY_OPTIONS}
+                      onChange={(v) =>
+                        onChange('remarks', formatBloRemark(v, bloInfo.boothNo))
+                      }
+                      required
+                    />
+                    <TextField
+                      id="bloBoothNo"
+                      label="बूथ संख्या"
+                      value={bloInfo.boothNo}
+                      onChange={(v) =>
+                        onChange('remarks', formatBloRemark(bloInfo.assemblyNo, v.replace(/\D/g, '')))
+                      }
+                      placeholder="Numeric only"
+                      inputMode="numeric"
+                      mono
+                      required
+                      hint="बी०एल०ओ० बूथ संख्या (Numeric only)"
+                    />
+                  </>
+                )}
+              </>
+            );
+          })()}
         </div>
       </fieldset>
 
@@ -706,7 +751,6 @@ export function EmployeeDataForm({
             placeholder="e.g. ABC1234567"
             uppercase
             mono
-            required
           />
           <TextField
             id="epicAssemblyNo"

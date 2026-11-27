@@ -24,6 +24,7 @@ import { SetupGuideModal } from './components/SetupGuideModal';
 import { AdminSheetModal } from './components/AdminSheetModal';
 import type { VerifiedAdminSession } from './components/AdminSheetModal';
 import { transliterateEnglishSegments } from './utils/hindiTransliterate';
+import { formatBloRemark, parseBloRemark } from './utils/bloRemarks';
 
 export default function App() {
   const [ehrmsInput, setEhrmsInput] = useState('');
@@ -169,7 +170,6 @@ export default function App() {
       { key: 'retirementDate', label: 'सेवानिवृत्ति का दिनांक' },
       { key: 'teacherCategory', label: 'अध्यापक श्रेणी' },
       { key: 'threeYearsInDistrict', label: 'जनपद में 3 वर्ष या अधिक कार्यरत' },
-      { key: 'epicNumber', label: 'EPIC (वोटर कार्ड नंबर)' },
       { key: 'epicAssemblyNo', label: 'EPIC विधान सभा क्षेत्र संख्या' },
       { key: 'epicAssemblyName', label: 'EPIC विधान सभा क्षेत्र का नाम' },
       { key: 'boothNumber', label: 'बूथ संख्या' },
@@ -186,6 +186,22 @@ export default function App() {
     if (missingField) {
       setValidationError(`Please fill in the mandatory field: ${missingField.label}`);
       return;
+    }
+
+    const bloInfo = parseBloRemark(formData.remarks);
+    if (bloInfo.isBlo) {
+      if (!bloInfo.assemblyNo.trim()) {
+        setValidationError('Please fill in the mandatory field: विधान सभा क्षेत्र का नाम जहाँ वर्तमान में BLO हैं');
+        return;
+      }
+      if (!bloInfo.boothNo.trim()) {
+        setValidationError('Please fill in the mandatory field: बूथ संख्या (बी०एल०ओ०)');
+        return;
+      }
+      if (!/^\d+$/.test(bloInfo.boothNo.trim())) {
+        setValidationError('बी०एल०ओ० बूथ संख्या केवल अंकों (Numeric) में दर्ज करें।');
+        return;
+      }
     }
 
     let submissionData = { ...formData };
@@ -210,6 +226,19 @@ export default function App() {
     for (const field of transliterateFields) {
       if (/[A-Za-z]/.test(submissionData[field])) {
         submissionData[field] = await transliterateEnglishSegments(submissionData[field]);
+        didTransliterate = true;
+      }
+    }
+    if (bloInfo.isBlo) {
+      const resolvedBloAssembly = /[A-Za-z]/.test(bloInfo.assemblyNo)
+        ? await transliterateEnglishSegments(bloInfo.assemblyNo)
+        : bloInfo.assemblyNo;
+      const formattedBloRemark = formatBloRemark(
+        resolvedBloAssembly.trim(),
+        bloInfo.boothNo.trim()
+      );
+      if (formattedBloRemark !== submissionData.remarks) {
+        submissionData.remarks = formattedBloRemark;
         didTransliterate = true;
       }
     }
