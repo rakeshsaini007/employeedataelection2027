@@ -20,6 +20,7 @@
  */
 
 var SHEET_NAME = 'EmployeeData';
+var STATUS_SHEET_NAME = 'Status';
 
 /**
  * Developer / Admin passcode required for ?action=list (Admin Sheet Navigation).
@@ -157,6 +158,140 @@ function jsonResponse_(payload) {
 }
 
 /**
+ * Auto-fills the "Status" column in the "Status" sheet with:
+ * - "Complete" if the row's EHRMS code has a mobile number in "EmployeeData"
+ * - "Pending" otherwise
+ */
+function syncStatusSheet_(throwIfMissing) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var statusSheet = ss.getSheetByName(STATUS_SHEET_NAME);
+  if (!statusSheet) {
+    if (throwIfMissing) {
+      throw new Error('Sheet "' + STATUS_SHEET_NAME + '" was not found in this spreadsheet.');
+    }
+    return { updated: 0, complete: 0, pending: 0, skipped: true };
+  }
+
+  var employeeSheet = getEmployeeSheet_();
+  var statusLastRow = statusSheet.getLastRow();
+  var statusLastCol = statusSheet.getLastColumn();
+  if (statusLastRow < 2 || statusLastCol < 1) {
+    return { updated: 0, complete: 0, pending: 0, skipped: false };
+  }
+
+  var headers = statusSheet.getRange(1, 1, 1, statusLastCol).getValues()[0];
+  var statusColIdx = -1;
+  var ehrmsColIdx = -1;
+
+  for (var c = 0; c < headers.length; c++) {
+    var h = normalizeCell_(headers[c]).toLowerCase();
+    if (h === 'status' && statusColIdx === -1) {
+      statusColIdx = c;
+    }
+    if (ehrmsColIdx === -1 && h.indexOf('ehrms') !== -1) {
+      ehrmsColIdx = c;
+    }
+  }
+
+  if (ehrmsColIdx === -1) {
+    for (var c2 = 0; c2 < headers.length; c2++) {
+      var h2 = normalizeCell_(headers[c2]).toLowerCase();
+      if (h2 !== 'status' && h2.indexOf('code') !== -1) {
+        ehrmsColIdx = c2;
+        break;
+      }
+    }
+  }
+  if (ehrmsColIdx === -1) {
+    ehrmsColIdx = 0;
+  }
+
+  if (statusColIdx === -1) {
+    if (throwIfMissing) {
+      throw new Error('Header column named "Status" was not found in sheet "' + STATUS_SHEET_NAME + '".');
+    }
+    return { updated: 0, complete: 0, pending: 0, skipped: true };
+  }
+
+  // Build set of EHRMS codes in "EmployeeData" that have a non-empty mobile number (Column G / index 6)
+  var employeeEhrmsMap = {};
+  var mobileColIdx = COLUMNS.indexOf('mobileNo');
+  var empLastRow = employeeSheet.getLastRow();
+  if (empLastRow >= 2) {
+    var empRows = employeeSheet.getRange(2, 1, empLastRow - 1, mobileColIdx + 1).getValues();
+    for (var i = 0; i < empRows.length; i++) {
+      var code = normalizeCell_(empRows[i][0]).toUpperCase();
+      var mobile = normalizeCell_(empRows[i][mobileColIdx]);
+      if (code && mobile !== '') {
+        employeeEhrmsMap[code] = true;
+      }
+    }
+  }
+
+  var rowCount = statusLastRow - 1;
+  var statusEhrmsValues = statusSheet.getRange(2, ehrmsColIdx + 1, rowCount, 1).getValues();
+  var existingStatusValues = statusSheet.getRange(2, statusColIdx + 1, rowCount, 1).getValues();
+  var outputStatuses = [];
+  var completeCount = 0;
+  var pendingCount = 0;
+
+  for (var r = 0; r < rowCount; r++) {
+    var rowCode = normalizeCell_(statusEhrmsValues[r][0]).toUpperCase();
+    if (!rowCode) {
+      outputStatuses.push([existingStatusValues[r][0]]);
+      continue;
+    }
+    if (Object.prototype.hasOwnProperty.call(employeeEhrmsMap, rowCode)) {
+      outputStatuses.push(['Complete']);
+      completeCount++;
+    } else {
+      outputStatuses.push(['Pending']);
+      pendingCount++;
+    }
+  }
+
+  statusSheet.getRange(2, statusColIdx + 1, rowCount, 1).setValues(outputStatuses);
+  return {
+    updated: completeCount + pendingCount,
+    complete: completeCount,
+    pending: pendingCount,
+    skipped: false
+  };
+}
+
+/**
+ * Run this manually from the Apps Script editor or Spreadsheet menu to backfill "Status".
+ */
+function syncStatusSheet() {
+  return syncStatusSheet_(true);
+}
+
+/**
+ * Adds a custom menu in Google Sheets to sync the "Status" sheet anytime.
+ */
+function onOpen() {
+  SpreadsheetApp.getUi()
+    .createMenu('EmployeeData Tools')
+    .addItem('Sync Status Sheet (Complete / Pending)', 'syncStatusSheet')
+    .addToUi();
+}
+
+/**
+ * Auto-syncs the "Status" sheet whenever edits occur in "EmployeeData" or "Status".
+ */
+function onEdit(e) {
+  try {
+    if (!e || !e.range) return;
+    var editedSheetName = e.range.getSheet().getName();
+    if (editedSheetName === SHEET_NAME || editedSheetName === STATUS_SHEET_NAME) {
+      syncStatusSheet_(false);
+    }
+  } catch (err) {
+    // Ignore transient trigger errors during manual edits
+  }
+}
+
+/**
  * GET Handler:
  * - ?action=lookup&ehrms=6494
  * - ?action=health
@@ -213,6 +348,25 @@ function doGet(e) {
         spreadsheetUrl: spreadsheetUrl,
         totalRows: allRows.length,
         rows: allRows
+      });
+    }
+
+    if (action === 'syncstatus') {
+      var expectedSyncKey = getAdminPasscode_();
+      var providedSyncKey = String(params.adminKey || '').trim();
+      if (!expectedSyncKey || !providedSyncKey || providedSyncKey !== expectedSyncKey) {
+        return jsonResponse_({
+          success: false,
+          error: 'Unauthorized: Invalid admin passcode.'
+        });
+      }
+      var syncResult = syncStatusSheet_(true);
+      return jsonResponse_({
+        success: true,
+        sheet: STATUS_SHEET_NAME,
+        updated: syncResult.updated,
+        complete: syncResult.complete,
+        pending: syncResult.pending
       });
     }
 
@@ -348,6 +502,7 @@ function doPost(e) {
 
     rowRange.setValues([updatedRow]);
     SpreadsheetApp.flush();
+    syncStatusSheet_(false);
 
     var savedObj = rowToObject_(updatedRow);
 
